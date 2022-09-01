@@ -36,27 +36,41 @@ class NormalCourt:
         self.bottomInnerLine = ((self.startPoint[0]+l_i_w, self.startPoint[1]+self.courtHeight-l_i_h), (self.startPoint[0]+self.courtWidth-l_i_w, self.startPoint[1]+self.courtHeight-l_i_h))   # 下横内边界
 
         # 任选球场线交点中的四个，用于图像匹配
-        self.court_conf = {1: [*self.topBaseLine, *self.bottomBaseLine],
-                           2: [self.leftInnerLine[0], self.rightInnerLine[0], self.leftInnerLine[1],
-                               self.rightInnerLine[1]],
-                           3: [self.leftInnerLine[0], self.rightOuterLine[0], self.leftInnerLine[1],
-                               self.rightOuterLine[1]],
-                           4: [self.leftOuterLine[0], self.rightInnerLine[0], self.leftOuterLine[1],
-                               self.rightInnerLine[1]],
-                           5: [*self.topInnerLine, *self.bottomInnerLine],
-                           6: [*self.topInnerLine, self.leftInnerLine[1], self.rightInnerLine[1]],
-                           7: [self.leftInnerLine[0], self.rightInnerLine[0], *self.bottomInnerLine],
-                           8: [self.rightInnerLine[0], self.rightOuterLine[0], self.rightInnerLine[1],
-                               self.rightOuterLine[1]],
-                           9: [self.leftOuterLine[0], self.leftInnerLine[0], self.leftOuterLine[1],
-                               self.leftInnerLine[1]],
-                           10: [self.topInnerLine[0], self.middleLine[0], self.bottomInnerLine[0],
-                                self.middleLine[1]],
-                           11: [self.middleLine[0], self.topInnerLine[1], self.middleLine[1],
-                                self.bottomInnerLine[1]],
-                           12: [*self.bottomInnerLine, self.leftInnerLine[1], self.rightInnerLine[1]]}
+        # self.court_conf = {1: [*self.topBaseLine, *self.bottomBaseLine],
+        #                    2: [self.leftInnerLine[0], self.rightInnerLine[0], self.leftInnerLine[1],
+        #                        self.rightInnerLine[1]],
+        #                    3: [self.leftInnerLine[0], self.rightOuterLine[0], self.leftInnerLine[1],
+        #                        self.rightOuterLine[1]],
+        #                    4: [self.leftOuterLine[0], self.rightInnerLine[0], self.leftOuterLine[1],
+        #                        self.rightInnerLine[1]],
+        #                    5: [*self.topInnerLine, *self.bottomInnerLine],
+        #                    6: [*self.topInnerLine, self.leftInnerLine[1], self.rightInnerLine[1]],
+        #                    7: [self.leftInnerLine[0], self.rightInnerLine[0], *self.bottomInnerLine],
+        #                    8: [self.rightInnerLine[0], self.rightOuterLine[0], self.rightInnerLine[1],
+        #                        self.rightOuterLine[1]],
+        #                    9: [self.leftOuterLine[0], self.leftInnerLine[0], self.leftOuterLine[1],
+        #                        self.leftInnerLine[1]],
+        #                    10: [self.topInnerLine[0], self.middleLine[0], self.bottomInnerLine[0],
+        #                         self.middleLine[1]],
+        #                    11: [self.middleLine[0], self.topInnerLine[1], self.middleLine[1],
+        #                         self.bottomInnerLine[1]],
+        #                    12: [*self.bottomInnerLine, self.leftInnerLine[1], self.rightInnerLine[1]]}
+
+        self.court_conf = {1: [(self.topBaseLine[0][0],self.bottomInnerLine[0][1]),self.bottomBaseLine[0],
+                                (self.topBaseLine[1][0],self.bottomInnerLine[1][1]),self.bottomBaseLine[1]],
+                            2: [*self.bottomInnerLine,
+                            (self.bottomInnerLine[0][0],self.bottomBaseLine[0][1]),(self.bottomInnerLine[1][0],self.bottomBaseLine[1][1])],
+                            3: [self.bottomInnerLine[0],(self.bottomBaseLine[1][0],self.bottomInnerLine[1][1]),
+                               (self.bottomInnerLine[0][0],self.bottomBaseLine[0][1]),self.bottomBaseLine[1]],
+                            4: [(self.bottomBaseLine[0][0],self.bottomInnerLine[0][1]),self.bottomInnerLine[1],
+                                 self.bottomBaseLine[0],(self.bottomInnerLine[1][0],self.bottomBaseLine[1][1])],
+                            5: [self.bottomInnerLine[1],(self.bottomBaseLine[1][0],self.bottomInnerLine[0][1]),
+                               (self.bottomInnerLine[1][0],self.bottomBaseLine[1][1]), self.bottomBaseLine[1]],
+                            6: [(self.bottomBaseLine[0][0],self.bottomInnerLine[0][1]),self.bottomInnerLine[0],
+                                 self.bottomBaseLine[0], (self.bottomInnerLine[0][0],self.bottomBaseLine[0][1])]
+                           }
         
-        self.line_width = 1     # 球场线宽度
+        self.line_width = 3     # 球场线宽度
 
         self.courtImageWidth = self.courtWidth + self.startPoint[0] * 2      # 球场图片的宽度
         self.courtImageHeight = self.courtHeight + self.startPoint[1] * 2    # 球场图片的高度
@@ -180,6 +194,7 @@ class NormalCourt:
 
 if __name__ == '__main__':
     c = NormalCourt()
+    print(c.court_conf)
     # c.get_court_mask(3)
     c.draw_court_withLength()
     # print(c.isExist())

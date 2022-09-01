@@ -1,3 +1,9 @@
+from distutils.command.clean import clean
+from email.mime import image
+from multiprocessing.heap import Arena
+from pickletools import uint8
+from tabnanny import verbose
+from turtle import clearstamp
 import numpy as np
 import cv2
 from matplotlib import pyplot as plt
@@ -8,11 +14,24 @@ try:
 except:
     from normalCourt import NormalCourt
 
+import os
+import traceback
+
+def showImage(image, name):
+    cv2.namedWindow(name, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
+    cv2.resizeWindow(name, 900, 720)
+    cv2.imshow(name, image)
+    keycode = cv2.waitKey(0)
+    cv2.destroyAllWindows()
+    if keycode & 0xff == 27:
+        print("Running end！")
+        exit(0)
+
 class CourtDetector:
     """
     检测以及跟踪图片中的网球场
     """
-    def __init__(self, verbose=0):
+    def __init__(self, verbose=0,args=None):
         self.verbose = verbose  # 可视化
         self.colour_threshold = 200     # 网球线的白色 阈值 起始值
         self.dist_tau = 3       # 
@@ -39,6 +58,18 @@ class CourtDetector:
         self.frame_points = None       # 当前图片中与标准球场最匹配的四点的坐标（标准球场逆向得到）
         self.dist = 3       # 跟踪时,用于判断当前点偏移一定距离后是否可以检测到白色像素
         self.flag = True   # true时进行detect，false进行track
+        if args == None:
+            args = {
+                "threshold": 150,    # _threshold 控制图像中提取的白色像素的起始范围
+                "minLineLength": 200, # _detect_lines HoughLinesP 可以检测出的最小线段长度
+                "maxLineGap": 40, # _detect_lines HoughLinesP 统一方向上两条线段定为一条线段的最大允许间隔
+                "angle": 15,     # _classify_lines 曲分垂直线和水平线的角度
+                "filterTop":0.5,    # _classify_lines 过滤图片 小于height*0.5 的直线
+                "filterBottom":0.8,     # _classify_lines 过滤图片 大于height*0.8 的直线
+                "minHorizontal": 30,    # _merge_lines 合并水平直线时，小于minHorizontal的进行合并
+                "minVertical": 30,    # _merge_lines 合并垂直直线时，小于minVertical的进行合并
+            }
+        self.args = args
     
     def setup(self,frame, dist=3,retrack_points_num=50,max_offset=6,increment=3):
         """
@@ -52,17 +83,17 @@ class CourtDetector:
             lines: 但前图像终球场的球场线list
         """
         lines = []
-        if self.flag:
+        if self.flag or self.best_conf is None:
             try:
-                lines = self.detect(frame=frame,dist=dist,minLineLength=100,maxLineGap=20,verbose=0)
+                lines = self.detect(frame=frame,dist=dist,minLineLength=self.args["minLineLength"],maxLineGap=self.args["maxLineGap"])
                 self.flag = False
             except Exception as e:
-                print("No tennis courts detected! <Exception message>:",e)
+                print("No tennis courts detected! <Exception message>:",traceback.print_exc())
         else:
             try:
                 lines = self.track_court(frame=frame,retrack_points_num=50,max_offset=6,increment=3)
             except Exception as e:
-                print("No tennis courts tracked! <Exception message>:",e)
+                print("No tennis courts tracked! <Exception message>:",traceback.print_exc())
                 self.flag = True
         return lines
     
@@ -81,9 +112,7 @@ class CourtDetector:
         new_points = new_points.reshape(-1,2).astype(np.int32)   # 变为二维矩阵,并变为int类型
         return new_points
         
-        
-
-    def detect(self, frame, dist=3, minLineLength=300, maxLineGap=60, verbose=0):
+    def detect(self, frame, dist=3, minLineLength=300, maxLineGap=60):
         """
         首次检测球场,或者球场位置发生便宜后无法继续跟踪重新检测球场位置
         @parameter:
@@ -94,22 +123,20 @@ class CourtDetector:
         """
         self.dist = dist   #  球场单次偏移距离
         self.frame_points = None
-        self.verbose = verbose  # 可视化
         self.frame = frame      # 当前图像（视频帧）
         self.v_height, self.v_width = frame.shape[:2]   #  图像的高度和宽度
 
         self.gray = self._threshold(frame)  # 获取图像的灰度图
-        # cv2.namedWindow('<func: display_lines_on_frame> gray', cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
-        # cv2.resizeWindow("<func: display_lines_on_frame> gray", 640, 480)
-        # cv2.imshow('<func: display_lines_on_frame> gray', self.gray)
+        if self.verbose:
+            showImage(self.gray,"self.gray")
 
         filtered = self._filter_pixels(self.gray)   # 过滤图像中的非线条类型像素
-        # cv2.namedWindow('<func: display_lines_on_frame> filtered', cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
-        # cv2.resizeWindow("<func: display_lines_on_frame> filtered", 640, 480)
-        # cv2.imshow('<func: display_lines_on_frame> filtered', filtered)
+        if self.verbose:
+            showImage(filtered,"filtered")
 
         horizontal_lines, vertical_lines = self._detect_lines(filtered,minLineLength=minLineLength,maxLineGap=maxLineGap) # 找到水平线和垂直线
-        print("horizontal_lines:",len(horizontal_lines),"vertical_lines:",len(vertical_lines))
+        if self.verbose:
+            print("horizontal_lines:",len(horizontal_lines),"vertical_lines:",len(vertical_lines))
         # 找到当前球场与标准球场的透视变换
         court_warp_matrix, game_warp_matrix, self.court_score = self._find_homography(horizontal_lines, vertical_lines)
         self.court_warp_matrix.append(court_warp_matrix)    # 存放当前球场到标准球场的透视矩阵
@@ -124,47 +151,21 @@ class CourtDetector:
         @return:
             gray:阈值过滤之后的灰度图
         """
-        # frame = self._enhanceColorHSV(frame=frame)
-        # cv2.namedWindow('<func: display_lines_on_frame> _enhanceColor', cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
-        # cv2.resizeWindow("<func: display_lines_on_frame> _enhanceColor", 640, 480)
-        # cv2.imshow('<func: display_lines_on_frame> _enhanceColor', frame)
-        # if cv2.waitKey(0) & 0xff == 27:
-        #     cv2.destroyAllWindows()
+        
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        gray = cv2.threshold(gray, 240, 255, cv2.THRESH_BINARY)[1]
-        # cv2.namedWindow('<func: display_lines_on_frame> gray', cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
-        # cv2.resizeWindow("<func: display_lines_on_frame> gray", 640, 480)
-        # cv2.imshow('<func: display_lines_on_frame> gray', gray)
-        # if cv2.waitKey(0) & 0xff == 27:
-        #     cv2.destroyAllWindows()
+        if self.verbose:
+            showImage(gray,"cvtColor")
+        # gray = cv2.GaussianBlur(gray,(5,5),0)
+        # showImage(gray,"GaussianBlur")
+        gray = cv2.threshold(gray, self.args["threshold"], 255, cv2.THRESH_BINARY)[1]
+        # showImage(gray,"threshold")
+        # gray1 = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, np.ones((3,3), np.uint8),iterations=20)
+        # gray1 = cv2.morphologyEx(gray1, cv2.MORPH_CLOSE, np.ones((3,3), np.uint8),iterations=20)
+        # showImage(gray,"MORPH_CLOSE")
+        # showImage(np.hstack((gray,gray1,gray-gray1)),'duibi')
+        # gray = gray-gray1
+
         return gray
-
-    def _enhanceColor(self,frame):
-        (B,G,R) = cv2.split(frame)
-        imgBlueChannelAvg = np.mean(B)
-        imgGreenChannelAvg = np.mean(G)
-        imgRedChannelAvg = np.mean(R)
-        k = (imgBlueChannelAvg+imgGreenChannelAvg+imgRedChannelAvg)/3
-        kb = k/imgBlueChannelAvg
-        kg = k/imgGreenChannelAvg
-        kr = k/imgRedChannelAvg
-        B = cv2.addWeighted(B,kb,0,0,0)
-        G = cv2.addWeighted(G,kg,0,0,0)
-        R = cv2.addWeighted(R,kr,0,0,0)
-        # self.frame = cv2.merge([B,G,R])
-        return cv2.merge([B,G,R])
-
-    def _enhanceColorHSV(self,frame):
-        hsv = cv2.cvtColor(frame,cv2.COLOR_BGR2HSV)
-        # greenMask = cv2.inRange(hsv.copy(),(26,10,30),(97,100,255))
-        greenMask = cv2.inRange(hsv.copy(),(97,10,20),(120,100,255))
-        cv2.namedWindow('<func: display_lines_on_frame> greenMask', cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
-        cv2.resizeWindow("<func: display_lines_on_frame> greenMask", 640, 480)
-        cv2.imshow('<func: display_lines_on_frame> greenMask', greenMask)
-        if cv2.waitKey(0) & 0xff == 27:
-            cv2.destroyAllWindows()
-        hsv[:,:,1] = greenMask
-        return cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
 
     def _filter_pixels(self, gray):
         """
@@ -208,20 +209,22 @@ class CourtDetector:
         #     minLineLength:线段以像素为单位的最小长度,根据应用场景设置 
         #     maxLineGap:同一方向上两条线段判定为一条线段的最大允许间隔（断裂）,超过了设定值,则把两条线段当成一条线段,值越大,允许线段上的断裂越大,越有可能检出潜在的直线段       
         lines = cv2.HoughLinesP(gray, 1, np.pi / 180, 80, minLineLength=minLineLength, maxLineGap=maxLineGap)
+
         lines = np.squeeze(lines)
         if self.verbose:
-            display_lines_on_frame(self.frame.copy(), [], lines)
+            display_lines_on_frame(self.frame.copy(), [], lines, name="HoughLinesP")
         # 将直线分类为水平直线和垂直直线
-        horizontal, vertical = self._classify_lines(lines)
+        horizontal, vertical = self._classify_lines(lines, angle=self.args['angle'])
         if self.verbose:
-            display_lines_on_frame(self.frame.copy(), horizontal, vertical)
+            display_lines_on_frame(self.frame.copy(), horizontal, vertical, name="_classify_lines")
+        self.gray = self._updateGray(horizontal,vertical)
         # 将断续的直线合并
-        horizontal, vertical = self._merge_lines(horizontal, vertical,minHorizontal=10, minVertical=10)
+        horizontal, vertical = self._merge_lines(horizontal, vertical,minHorizontal=self.args["minHorizontal"], minVertical=self.args["minVertical"])
         if self.verbose:
-            display_lines_on_frame(self.frame.copy(), horizontal, vertical)
+            display_lines_on_frame(self.frame.copy(), horizontal, vertical, name="_merge_lines")
         return horizontal, vertical
 
-    def _classify_lines(self, lines, angle=26.5):
+    def _classify_lines(self, lines, angle=15):
         """
         将直线分类为垂直线和水平线,通过计算直接的倾角,angle=26.5时,tanAngle=2.00057
         @parameter:
@@ -236,7 +239,8 @@ class CourtDetector:
         highest_vertical_y = np.inf
         lowest_vertical_y = 0
         # 计算当前倾角的tan值
-        tanAngle = 1.0 / np.tan(np.deg2rad(angle)) 
+        tanAngle = 1.0 / np.tan(np.deg2rad(angle))
+        # print("tanAngle:",tanAngle) 
         # 循环遍历，计算倾角，将直线分为水平和垂直
         for line in lines:
             x1, y1, x2, y2 = line
@@ -245,6 +249,8 @@ class CourtDetector:
             if dx > tanAngle * dy:
                 horizontal.append(line)
             else:
+                if dx < 1.0/np.tan(np.deg2rad(80))*dy:
+                    continue
                 vertical.append(line)
                 highest_vertical_y = min(highest_vertical_y, y1, y2)
                 lowest_vertical_y = max(lowest_vertical_y, y1, y2)
@@ -254,30 +260,57 @@ class CourtDetector:
         clean_horizontal = []
         h = lowest_vertical_y - highest_vertical_y
         lowest_vertical_y += h / 15
-        # lowest_vertical_y = min(lowest_vertical_y, self.v_height/10*9)
-        lowest_vertical_y = max(lowest_vertical_y, self.v_height/10*9)
-        highest_vertical_y -= h * 2 / 15
-        # highest_vertical_y = max(highest_vertical_y, self.v_height/10)
-        highest_vertical_y = min(highest_vertical_y, self.v_height/10)
+        lowest_vertical_y = min(lowest_vertical_y, self.v_height*self.args["filterBottom"])
 
-        mid_horizontal_line = (highest_vertical_y+lowest_vertical_y)/2.0
-        mid_low = mid_horizontal_line - h *0.16
-        mid_hight = mid_horizontal_line - h*0.42
+        highest_vertical_y -= h * 2 / 15
+        highest_vertical_y = max(highest_vertical_y, self.v_height*self.args["filterTop"])
+
+        # mid_horizontal_line = (highest_vertical_y+lowest_vertical_y)/2.0
+        # mid_low = mid_horizontal_line - h *0.16
+        # mid_hight = mid_horizontal_line - h*0.42
         # print("lowest_vertical_y",lowest_vertical_y,"mid_low",mid_low,"mid_hight",mid_hight,"highest_vertical_y",highest_vertical_y)
         for line in horizontal:
             x1, y1, x2, y2 = line
-            # if lowest_vertical_y > y1 > highest_vertical_y and lowest_vertical_y > y2 > highest_vertical_y:
-            #     clean_horizontal.append(line)
-            if (lowest_vertical_y > y1 > mid_low or mid_hight > y1 > highest_vertical_y) and (lowest_vertical_y > y2 > mid_low or mid_hight > y2 > highest_vertical_y):
+            if lowest_vertical_y > y1 > highest_vertical_y or lowest_vertical_y > y2 > highest_vertical_y:
                 clean_horizontal.append(line)
+            # if (lowest_vertical_y > y1 > mid_low or mid_hight > y1 > highest_vertical_y) and (lowest_vertical_y > y2 > mid_low or mid_hight > y2 > highest_vertical_y):
+            #     clean_horizontal.append(line)
         
-        return clean_horizontal, vertical
+        clean_vertical = []
+        for line in vertical:
+            x1, y1, x2, y2 = line
+            if lowest_vertical_y > y1 > highest_vertical_y or lowest_vertical_y > y2 > highest_vertical_y:
+                clean_vertical.append(line)
+        return clean_horizontal, clean_vertical
+
+    def _updateGray(self, horizontal, vertical):
+        """
+        使用Hough变换检测并过滤的直线重新绘制gray图
+        @parmaeter
+            vertical: 当前检测出的所有垂直线
+            horizontal: 当前检测出的所有水平线
+        @return
+            new_gray: 新的灰度图
+        """
+
+        new_gray = np.zeros((self.v_height, self.v_width), dtype=np.uint8)
+        
+        for line in horizontal:
+            x1,y1,x2,y2 = line
+            cv2.line(new_gray, pt1=(x1,y1), pt2=(x2,y2),color=(255,255,255),thickness=2)
+        for line in vertical:
+            x1,y1,x2,y2 = line
+            cv2.line(new_gray, pt1=(x1,y1), pt2=(x2,y2),color=(255,255,255),thickness=3)
+        if self.verbose:
+            showImage(new_gray, "new_gray")
+
+        return new_gray
 
     def _classify_vertical(self, vertical, width):
         """
         将垂直的直线分类为左边的垂直直线和右边的垂直直线
         @parmaeter
-            vertical: 但前检测出的所有垂直线
+            vertical: 当前检测出的所有垂直线
             width: 图像的宽度
         @return
             vertical_lines: 过滤后的所有垂直线
@@ -325,7 +358,8 @@ class CourtDetector:
                         x1, y1, x2, y2 = line
                         x3, y3, x4, y4 = s_line
                         dy = abs(y3 - y2)
-                        if dy < minHorizontal:
+                        
+                        if dy < minHorizontal and x3-x2<20:
                             points = sorted([(x1, y1), (x2, y2), (x3, y3), (x4, y4)], key=lambda x: x[0])
                             line = np.array([*points[0], *points[-1]])
                             mask[i + j + 1] = False
@@ -351,7 +385,8 @@ class CourtDetector:
                         xj, yj = line_intersection(((x3, y3), (x4, y4)), ((xl, yl), (xr, yr)))
 
                         dx = abs(xi - xj)
-                        if dx < minVertical:
+
+                        if dx < minVertical and y3-y2<20:
                             points = sorted([(x1, y1), (x2, y2), (x3, y3), (x4, y4)], key=lambda x: x[1])
                             line = np.array([*points[0], *points[-1]])
                             mask[i + j + 1] = False
@@ -379,7 +414,7 @@ class CourtDetector:
         count = 0
         hnum = len(list(combinations(horizontal_lines, 2)))
         vnum = len(list(combinations(vertical_lines, 2)))
-        print("count:",hnum*vnum*12)
+        print("horizontalnum:{},verticalNum:{},computingNum:".format(hnum, vnum, hnum*vnum*len(self.normal_court.court_conf)))
         for horizontal_pair in list(combinations(horizontal_lines, 2)):  # combinatoins 排列组合
             for vertical_pair in list(combinations(vertical_lines, 2)):
                 h1, h2 = horizontal_pair
@@ -390,12 +425,43 @@ class CourtDetector:
                 i3 = line_intersection((tuple(h2[:2]), tuple(h2[2:])), (tuple(v1[0:2]), tuple(v1[2:])))
                 i4 = line_intersection((tuple(h2[:2]), tuple(h2[2:])), (tuple(v2[0:2]), tuple(v2[2:])))
                 intersections = [i1, i2, i3, i4]
+
                 #对交点进行排序，左上->右下
-                intersections = sort_intersection_points(intersections) 
+                intersections = sort_intersection_points(intersections)
+                # print(np.float32(intersections)) 
+
+                ## 绘制交点 进行test ############################
+                if self.verbose:
+                    # print(h1,tuple(h1[:2]),tuple(h1[2:]))
+                    # print(h2,tuple(h2[:2]),tuple(h2[2:]))
+                    # print(v1,tuple(v1[:2]),tuple(v1[2:]))
+                    # print(v2,tuple(v2[:2]),tuple(v2[2:]))
+                    new_img = self.frame.copy()
+                    new_img = cv2.putText(new_img,"horizontal-1",(tuple(h1[:2])), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0,88,211), 5)
+                    new_img = cv2.line(new_img, tuple(h1[:2]),tuple(h1[2:]),(0,88,211),5)
+                    new_img = cv2.putText(new_img,"horizontal-2",(tuple(h2[:2])), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0,255,0), 5)
+                    new_img = cv2.line(new_img, tuple(h2[:2]),tuple(h2[2:]),(0,255,0),5)
+                    new_img = cv2.putText(new_img,"verrtical-1",(tuple(v1[:2])), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255,255,0), 5)
+                    new_img = cv2.line(new_img, tuple(v1[:2]),tuple(v1[2:]),(255,255,0),5)
+                    new_img = cv2.putText(new_img,"verrtical-2",(tuple(v2[:2])), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0,255,255), 5)
+                    new_img = cv2.line(new_img, tuple(v2[:2]),tuple(v2[2:]),(0,255,255),5)
+                    new_img = cv2.circle(new_img, (int(intersections[0][0]),int(intersections[0][1])), 5, (255,0,0), -1)
+                    new_img = cv2.circle(new_img, (int(intersections[1][0]),int(intersections[1][1])), 5, (255,0,0), -1)
+                    new_img = cv2.circle(new_img, (int(intersections[2][0]),int(intersections[2][1])), 5, (255,0,0), -1)
+                    new_img = cv2.circle(new_img, (int(intersections[3][0]),int(intersections[3][1])), 5, (255,0,0), -1)
+                    showImage(new_img,"line_intersection")
+                ###################################################
+
                 # 循环匹配球场的任意四点
                 for i, configuration in self.normal_court.court_conf.items():
                     # 计算标准球场到当前四个点的透视变化矩阵
-                    matrix, _ = cv2.findHomography(np.float32(configuration), np.float32(intersections), method=0)  
+                    # print("configuration",i,np.float32(configuration))
+                    matrix, _ = cv2.findHomography(np.float32(configuration), np.float32(intersections), method=0)
+
+                    areaRatio = self._get_area_Ratio(matrix)
+                    if areaRatio <0.01 or areaRatio>0.6:
+                        continue
+
                     inv_matrix = cv2.invert(matrix)[1]  # 当前矩阵到标准球场的透视变换矩阵 （matrix的逆矩阵）
                     # 计算当前四点的得分
                     confi_score = self._get_confi_score(matrix)     
@@ -407,6 +473,9 @@ class CourtDetector:
                         max_mat = matrix
                         max_inv_mat = inv_matrix
                         self.best_conf = i
+                    # print("i:{} confi_score:{}".format(i, confi_score))
+                
+
         # 可视化
         if self.verbose:
             frame = self.frame.copy()
@@ -415,6 +484,22 @@ class CourtDetector:
             if cv2.waitKey(0) & 0xff == 27:
                 cv2.destroyAllWindows()
         return max_mat, max_inv_mat, max_score
+
+    def _get_area_Ratio(self,matrix):
+        points = np.array([self.normal_court.topBaseLine[0],self.normal_court.bottomBaseLine[1]])
+        # print("points：", points)
+        points = points.reshape(-1,1,2).astype(np.float32)  # 转变为3维矩阵，float类型
+        # print("points.reshape：", points)
+        new_points = cv2.perspectiveTransform(points, matrix)     # 计算透视点坐标
+        # print("new_points", new_points)
+        new_points = new_points.reshape(-1,2).astype(np.int32)   # 变为二维矩阵,并变为int类型
+        # print("new_points.reshape", new_points)
+        # area = abs(new_points[1][1]-new_points[0][1]) * abs(new_points[1][0] - new_points[0][0])
+        # print("area", area)
+        areaRatio = (abs(new_points[1][1]-new_points[0][1])/self.v_height) * (abs(new_points[1][0] - new_points[0][0])/self.v_width)
+        # areaRatio = (area) / (self.v_width*self.v_height)
+        # print(abs(new_points[1][1]-new_points[0][1]), abs(new_points[1][0] - new_points[0][0]), areaRatio)
+        return areaRatio
 
     def _get_confi_score(self, matrix):
         """
@@ -425,6 +510,8 @@ class CourtDetector:
             返回 重合的像素数目 - 0.5*不重合的像素数目
         """
         court = cv2.warpPerspective(self.normal_court.court, matrix, self.frame.shape[1::-1])    # 透视变换
+        if self.verbose:
+            showImage(court, "_get_confi_score[court]")
         court[court > 0] = 1
         gray = self.gray.copy()
         gray[gray > 0] = 1
@@ -612,7 +699,7 @@ def sort_intersection_points(intersections):
     p34 = sorted(p34, key=lambda x: x[0])
     return p12 + p34
 
-def display_lines_on_frame(frame, horizontal=(), vertical=()):
+def display_lines_on_frame(frame, horizontal=(), vertical=(), name=None):
     """
     再输入图像上绘制检测出的线条,并使用opencv进行展示.
     @parameter:
@@ -631,12 +718,12 @@ def display_lines_on_frame(frame, horizontal=(), vertical=()):
 
     for line in vertical:
         x1, y1, x2, y2 = line
-        cv2.line(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        cv2.line(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
         cv2.circle(frame, (x1, y1), 1, (255, 0, 0), 2)
         cv2.circle(frame, (x2, y2), 1, (255, 0, 0), 2)
-    cv2.namedWindow('<func: display_lines_on_frame> Court', cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
-    cv2.resizeWindow("<func: display_lines_on_frame> Court", 640, 480)
-    cv2.imshow('<func: display_lines_on_frame> Court', frame)
-    if cv2.waitKey(0) & 0xff == 27:
-        cv2.destroyAllWindows()
+    if name is None:
+        name = '<func: display_lines_on_frame> Court'
+    else:
+        name = '<func: display_lines_on_frame>' + name
+    showImage(frame, name=name)
     return frame
