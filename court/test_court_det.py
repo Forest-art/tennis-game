@@ -1,7 +1,8 @@
 
-from hashlib import new
 import os
 import random
+import time
+
 
 from tqdm import tqdm
 from courtDetector import CourtDetector
@@ -51,9 +52,17 @@ def test(videoPath,verbose=0, args=None):
     courtlines = [] # 存放每一帧的球场直线坐标
     while True:
         ret, frame = video.read()   # 读取视频
+        # print("frame.shape",frame.shape)
         frame_i += 1    
         if ret:
+            if showtime:
+                startTime = time.time()
+            # y,x = frame.shape[0:2]
+            # frame = cv2.resize(frame,(int(x/2),int(y/2)))
+            # print("frame.resize.shape",frame.shape)
             lines = court_detector.setup(frame)     # 检测球场的直线
+            if showtime:
+                print("time:", time.time()-startTime)
             if lines is None:
                 if len(courtlines):
                     lines = courtlines[-1]
@@ -110,7 +119,6 @@ def testwithDropPoint(videoPath):
     dropPoints = [] # 球场图落点list
     while True:
         ret, frame = video.read()   # 读取视频
-            
         if ret:
             lines = court_detector.setup(frame)     # 检测球场的直线
             if lines is None:
@@ -189,10 +197,12 @@ def testwithDropPoint(videoPath):
 
 
 # 每一帧检测完是否展示结果
-showResult = False
+showResult = True
+showtime = True
 
 if __name__=="__main__":
-    # videopath = "data/video/3_Trim2.mp4"
+    # videopath = "data/video/3_Trim.mp4"
+    videopath = "data/video/1.mp4"
     # videopath = "data/video/4_Trim.mp4"
     # videopath = "data/video/trim30.mp4"
     # videopath = "data/video/trim30_Trim.mp4"
@@ -207,14 +217,14 @@ if __name__=="__main__":
     # videopath = "data/dj/test-10.mp4"  
     # videopath = "data/dj/test-11.mp4"  
     # videopath = "data/dj/test-12.mp4"  
-    videopath = "data/dj/test-13.mp4"  
+    # videopath = "data/dj/test-13.mp4"  
     args = {
         "threshold": 150,    # _threshold 控制图像中提取的白色像素的起始范围
         "minLineLength": 200, # _detect_lines HoughLinesP 可以检测出的最小线段长度
         "maxLineGap": 40, # _detect_lines HoughLinesP 统一方向上两条线段定为一条线段的最大允许间隔
         "angle": 15,     # _classify_lines 曲分垂直线和水平线的角度
         "filterTop":0.55,    # _classify_lines 过滤图片 小于height*0.5 的直线
-        "filterBottom":0.8,     # _classify_lines 过滤图片 大于height*0.8 的直线
+        "filterBottom":0.9,     # _classify_lines 过滤图片 大于height*0.8 的直线
         "minHorizontal": 30,    # _merge_lines 合并水平直线时，小于minHorizontal的进行合并
         "minVertical": 30,    # _merge_lines 合并垂直直线时，小于minVertical的进行合并
     }

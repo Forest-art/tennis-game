@@ -175,7 +175,13 @@ class CourtDetector:
         @return:
             gray: 过滤像素以后的灰度图
         """
+
+        z = np.zeros(self.v_width,dtype=np.uint8)
+
         for i in range(self.dist_tau, len(gray) - self.dist_tau):
+            if i<self.v_height*self.args["filterTop"] or i>self.v_height*self.args["filterBottom"]:
+                gray[i] = z
+                continue
             for j in range(self.dist_tau, len(gray[0]) - self.dist_tau):
                 if gray[i, j] == 0:
                     continue
@@ -300,7 +306,7 @@ class CourtDetector:
             cv2.line(new_gray, pt1=(x1,y1), pt2=(x2,y2),color=(255,255,255),thickness=2)
         for line in vertical:
             x1,y1,x2,y2 = line
-            cv2.line(new_gray, pt1=(x1,y1), pt2=(x2,y2),color=(255,255,255),thickness=3)
+            cv2.line(new_gray, pt1=(x1,y1), pt2=(x2,y2),color=(255,255,255),thickness=2)
         if self.verbose:
             showImage(new_gray, "new_gray")
 
@@ -359,7 +365,8 @@ class CourtDetector:
                         x3, y3, x4, y4 = s_line
                         dy = abs(y3 - y2)
                         
-                        if dy < minHorizontal and x3-x2<20:
+                        if dy < minHorizontal and x3-x2<100:
+                        # if dy < minHorizontal:
                             points = sorted([(x1, y1), (x2, y2), (x3, y3), (x4, y4)], key=lambda x: x[0])
                             line = np.array([*points[0], *points[-1]])
                             mask[i + j + 1] = False
@@ -386,7 +393,8 @@ class CourtDetector:
 
                         dx = abs(xi - xj)
 
-                        if dx < minVertical and y3-y2<20:
+                        if dx < minVertical and y3-y2<100:
+                        # if dx < minVertical:
                             points = sorted([(x1, y1), (x2, y2), (x3, y3), (x4, y4)], key=lambda x: x[1])
                             line = np.array([*points[0], *points[-1]])
                             mask[i + j + 1] = False
@@ -414,7 +422,7 @@ class CourtDetector:
         count = 0
         hnum = len(list(combinations(horizontal_lines, 2)))
         vnum = len(list(combinations(vertical_lines, 2)))
-        print("horizontalnum:{},verticalNum:{},computingNum:".format(hnum, vnum, hnum*vnum*len(self.normal_court.court_conf)))
+        print("horizontalnum:{},verticalNum:{},computingNum:{}".format(hnum, vnum, hnum*vnum*len(self.normal_court.court_conf)))
         for horizontal_pair in list(combinations(horizontal_lines, 2)):  # combinatoins 排列组合
             for vertical_pair in list(combinations(vertical_lines, 2)):
                 h1, h2 = horizontal_pair
