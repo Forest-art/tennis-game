@@ -40,7 +40,7 @@ class CourtReference:
                            11: [self.middle_line[0], self.top_inner_line[1], self.middle_line[1],
                                 self.bottom_inner_line[1]],
                            12: [*self.bottom_inner_line, self.left_inner_line[1], self.right_inner_line[1]]}
-        self.line_width = 1
+        self.line_width = 2
         self.court_width = 1117
         self.court_height = 2408
         self.top_bottom_border = 549

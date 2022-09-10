@@ -193,6 +193,25 @@ def is_in_poly(p, poly):
     return is_in
 
 
+# 坐标转换
+def cvt_pos(pos, cvt_mat_t):
+    u = pos[0]
+    v = pos[1]
+    x = (cvt_mat_t[0][0]*u+cvt_mat_t[0][1]*v+cvt_mat_t[0][2])/(cvt_mat_t[2][0]*u+cvt_mat_t[2][1]*v+cvt_mat_t[2][2])
+    y = (cvt_mat_t[1][0]*u+cvt_mat_t[1][1]*v+cvt_mat_t[1][2])/(cvt_mat_t[2][0]*u+cvt_mat_t[2][1]*v+cvt_mat_t[2][2])
+
+    return [int(x), int(y)]
+
+
+# 网球场主场尺寸10.97 * 23.77m
+def dist(p1, p2):
+    dx = abs(p1[0] - p2[0]) / 360 * 10.97
+    dy = abs(p1[1] - p2[1]) / 700 * 23.77
+    return math.sqrt(dx * dx + dy * dy)
+
+
+
+# Caluate the speed of tennis, detect whether the ball is out court or hit the ground
 def speed(points, fps, court_points):
     x = points[:, 0]
     y = points[:, 1]
@@ -201,26 +220,40 @@ def speed(points, fps, court_points):
 
     hit_ground = 0
     out_court = 0
+    
+    M = cv2.getPerspectiveTransform(court_points, np.float32([[0, 0], [360, 0], [360, 700], [0, 700]]))
 
+    hit_point = [0, 0]
     for i in range(len(y)):
         if i > 1 and i < len(y) - 2 and y[i-2] < y[i-1] and y[i-1] < y[i] and y[i] > y[i+1] and y[i+1] > y[i+2]:
-            hit_ground = 1
+            if is_in_poly([x[i], y[i]], court_points):
+                hit_ground = 1
+                hit_point = cvt_pos([x[i], y[i]], M)
             if x[i] != 0 and y[i] != 0:
                 if not is_in_poly([x[i], y[i]], court_points):
                     out_court = 1
 
     if len(x[x>0]) < 2:
-        return -1, hit_ground, out_court
+        return -1, hit_ground, out_court, hit_point
     
     speed_list = []
     detected_idx = np.where(x)[0]
     for i in range(len(detected_idx)):
         if i > 0:
-            speed_cur = math.sqrt((x[detected_idx[i]] - x[detected_idx[i-1]]) * (x[detected_idx[i]] - x[detected_idx[i-1]]) + (y[detected_idx[i]] - y[detected_idx[i-1]]) * (y[detected_idx[i]] - y[detected_idx[i-1]])) * fps / (detected_idx[i] - detected_idx[i-1])
+            # if is_in_poly([x[detected_idx[i]], y[detected_idx[i]]], court_points) and is_in_poly([x[detected_idx[i-1]], y[detected_idx[i-1]]], court_points):
+                # p1 = cvt_pos([x[detected_idx[i]], y[detected_idx[i]]], M)
+                # p2 = cvt_pos([x[detected_idx[i-1]], y[detected_idx[i-1]]], M)
+            p1 = [x[detected_idx[i]], y[detected_idx[i]]]
+            p2 = [x[detected_idx[i-1]], y[detected_idx[i-1]]]
+            # print([p1, p2], [[x[detected_idx[i]], y[detected_idx[i]]], [x[detected_idx[i-1]], y[detected_idx[i-1]]]])
+            # print(dist(p1, p2), dist([x[detected_idx[i]], y[detected_idx[i]]], [x[detected_idx[i-1]], y[detected_idx[i-1]]]))
+            speed_cur = dist(p1, p2) * fps / (detected_idx[i] - detected_idx[i-1])
             speed_list.append(speed_cur)
-                
+    
+    if len(speed_list) == 0:
+        return -1, hit_ground, out_court, hit_point
 
-    return sum(speed_list) / len(speed_list), hit_ground, out_court
+    return sum(speed_list) / len(speed_list), hit_ground, out_court, hit_point
 
 
 
@@ -250,11 +283,15 @@ def ball_detect(input_video, output, weights):
     dic = np.load("test3.npy",allow_pickle=True)
     court_points = np.array([dic.item()["topBaseLine"][0], dic.item()["topBaseLine"][1], dic.item()["bottomBaseLine"][1], dic.item()["bottomBaseLine"][0]])
     print(court_points)
-    court = create_top_view()
-    court = cv2.resize(court, (700, 320), interpolation = cv2.INTER_AREA).transpose(1,0,2)
-    
+
+
     frame_i = 0
     while True:
+
+        court = create_top_view()
+        court = court[561:2935, 286:1379]
+        court_resized = cv2.resize(court, (700, 360), interpolation = cv2.INTER_AREA)
+
         ret, frame = cap.read()
         frame_i += 1
         if not ret:
@@ -267,13 +304,13 @@ def ball_detect(input_video, output, weights):
         else:
             ball_clip = ball_detector.xy_coordinates
         
-        speeds, hit, out_court = speed(ball_clip, fps, court_points)
-        print(ball_clip, speeds)
-
+        speeds, hit, out_court, hit_point = speed(ball_clip, fps, court_points)
+        print(ball_clip, speeds, hit, out_court, hit_point)
+        if hit == 1:
+            court_resized = cv2.circle(court_resized, (int(hit_point[1]), int(hit_point[0])), 6, (0, 0, 255), -1)
+        
         x = ball_detector.xy_coordinates[-1][0] if ball_detector.xy_coordinates[-1][0] is not None else 0
         y = ball_detector.xy_coordinates[-1][1] if ball_detector.xy_coordinates[-1][0] is not None else 0
-
-        frame[0:700, v_width-320:v_width] = court
 
 
 
@@ -288,9 +325,13 @@ def ball_detect(input_video, output, weights):
         if out_court == 1:
             cv2.putText(frame, 'Out-Courtline', (min(v_width, int(x) + 10), min(v_height, int(y) + 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 
+        frame[0:700, v_width-360:v_width] = court_resized.transpose(1,0,2)
+
+
         img = ball_detector.mark_positions(frame, frame_num=frame_i)
         out.write(img)
 
+        cv2.imwrite("demo/test.jpg", img)
 
 
     cap.release()
